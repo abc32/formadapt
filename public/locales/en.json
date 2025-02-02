@@ -1,0 +1,42 @@
+{
+    "home": {
+      "title": "FormAdapt",
+      "welcome": "Welcome to FormAdapt!",
+      "modules": "Available modules"
+    },
+    "navbar": {
+      "ariaLabel": "Main navigation",
+      "home": "Home",
+      "modules": "Modules"
+    },
+    "modules": {
+      "title": "All modules",
+      "removeFavorite": "Remove from favorites",
+      "addFavorite": "Add to favorites"
+    },
+    "module": {
+      "otherModules": "Other modules",
+      "completed": "completed",
+      "startQuiz": "Finish module and start quiz",
+      "quizCompleted": "Quiz completed!",
+      "notes": "My notes",
+      "notesLabel": "Text area for notes"
+    },
+    "quiz": {
+      "title": "Quiz",
+      "nextQuestion": "Next question",
+      "submitQuiz": "Submit quiz"
+    },
+    "dashboard": {
+      "title": "Dashboard of",
+      "email": "Email:",
+      "progress": "Progress in modules",
+      "favorites": "Favorite modules"
+    },
+    "notifications": {
+      "welcome": "Welcome to FormAdapt!"
+    },
+    "error": {
+      "title": "An error occurred"
+    }
+  }

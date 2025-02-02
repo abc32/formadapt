@@ -1,0 +1,31 @@
+/* ... */
+  body {
+    font-family: sans-serif;
+    transition: background-color 0.3s ease;
+  }
+
+  body.dark-mode {
+    background-color: #333;
+    color: #fff;
+  }
+
+  /* Styles spécifiques au mode sombre */
+  .dark-mode .navbar {
+    background-color: #555;
+  }
+
+  /* Définir la variable CSS pour la couleur primaire */
+  :root {
+    --primary-color: #4caf50;
+    --secondary-color: #2196f3;
+  }
+
+  /* Utiliser la variable CSS pour la couleur primaire */
+  .progress-indicator {
+    background-color: var(--primary-color);
+  }
+
+  .navbar a.active {
+    background-color: var(--secondary-color);
+    font-weight: bold;
+  }

@@ -1,0 +1,32 @@
+.video-player {
+    margin-bottom: 20px;
+  }
+
+  .video-player video {
+    width: 100%;
+  }
+
+  .video-player .subtitles {
+    margin-top: 10px;
+    font-style: italic;
+  }
+
+  .video-player .translated-subtitles {
+    margin-top: 5px;
+    font-style: italic;
+    color: #888;
+  }
+
+  /* Styles pour le mode sombre */
+  body.dark-mode .video-player {
+    background-color: #333;
+    color: #fff;
+  }
+
+  body.dark-mode .video-player .subtitles {
+    color: #fff;
+  }
+
+  body.dark-mode .video-player .translated-subtitles {
+    color: #aaa;
+  }

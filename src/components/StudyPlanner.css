@@ -1,0 +1,21 @@
+.study-planner {
+    padding: 20px;
+  }
+
+  .study-planner h2 {
+    margin-bottom: 10px;
+  }
+
+  .study-planner h3 {
+    margin-top: 20px;
+    margin-bottom: 10px;
+  }
+
+  .study-planner ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  .study-planner li {
+    margin-bottom: 5px;
+  }

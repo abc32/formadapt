@@ -1,0 +1,5 @@
+/* Styles pour le composant Quiz */
+  body.dark-mode .quiz {
+    background-color: #333;
+    color: #fff;
+  }

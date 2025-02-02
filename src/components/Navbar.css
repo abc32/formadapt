@@ -1,0 +1,51 @@
+.navbar {
+    background-color: #f0f0f0;
+    padding: 10px;
+  }
+
+  .navbar ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+  }
+
+  .navbar li {
+    margin-right: 20px;
+  }
+
+  .navbar a {
+    text-decoration: none;
+    color: #333;
+    padding: 5px 10px;
+    border-radius: 5px;
+  }
+
+  .navbar a:focus,
+  .navbar a:hover {
+    background-color: #ddd;
+    outline: none;
+  }
+
+  .navbar a.active {
+    background-color: #bbb;
+    font-weight: bold;
+  }
+
+  /* Styles pour le mode sombre */
+  body.dark-mode .navbar {
+    background-color: #555;
+  }
+
+  body.dark-mode .navbar a {
+    color: #fff;
+  }
+
+  body.dark-mode .navbar a:focus,
+  body.dark-mode .navbar a:hover {
+    background-color: #777;
+  }
+
+  body.dark-mode .navbar a.active {
+    background-color: #999;
+  }

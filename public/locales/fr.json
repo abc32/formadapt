@@ -1,0 +1,42 @@
+{
+    "home": {
+      "title": "FormAdapt",
+      "welcome": "Bienvenue sur FormAdapt !",
+      "modules": "Modules disponibles"
+    },
+    "navbar": {
+      "ariaLabel": "Navigation principale",
+      "home": "Accueil",
+      "modules": "Modules"
+    },
+    "modules": {
+      "title": "Tous les modules",
+      "removeFavorite": "Retirer des favoris",
+      "addFavorite": "Ajouter aux favoris"
+    },
+    "module": {
+      "otherModules": "Autres modules",
+      "completed": "complété",
+      "startQuiz": "Terminer le module et commencer le quiz",
+      "quizCompleted": "Quiz terminé !",
+      "notes": "Mes notes",
+      "notesLabel": "Zone de texte pour les notes"
+    },
+    "quiz": {
+      "title": "Quiz",
+      "nextQuestion": "Question suivante",
+      "submitQuiz": "Soumettre le quiz"
+    },
+    "dashboard": {
+      "title": "Tableau de bord de",
+      "email": "Email :",
+      "progress": "Progression dans les modules",
+      "favorites": "Modules favoris"
+    },
+    "notifications": {
+      "welcome": "Bienvenue sur FormAdapt !"
+    },
+    "error": {
+      "title": "Une erreur est survenue"
+    }
+  }

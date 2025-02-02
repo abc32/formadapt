@@ -1,0 +1,17 @@
+.settings {
+    padding: 20px;
+  }
+
+  .settings h2 {
+    margin-bottom: 10px;
+  }
+
+  .settings div {
+    margin-bottom: 10px;
+  }
+
+  /* Styles pour le mode sombre */
+  body.dark-mode .settings {
+    background-color: #333;
+    color: #fff;
+  }

@@ -1,0 +1,35 @@
+.error {
+    border: 1px solid red;
+    padding: 10px;
+    margin-bottom: 20px;
+  }
+
+  .retry-button {
+    background-color: #4caf50;
+    color: white;
+    padding: 10px 15px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    margin-top: 10px;
+  }
+
+  .retry-button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+  }
+
+  /* Styles pour le mode sombre */
+  body.dark-mode .error {
+    background-color: #555;
+    color: #fff;
+    border-color: #f00;
+  }
+
+  body.dark-mode .retry-button {
+    background-color: #66bb6a;
+  }
+
+  body.dark-mode .retry-button:disabled {
+    background-color: #777;
+  }

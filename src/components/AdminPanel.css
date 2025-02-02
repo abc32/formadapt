@@ -1,0 +1,31 @@
+.admin-panel {
+    padding: 20px;
+  }
+
+  .admin-panel h2 {
+    margin-bottom: 10px;
+  }
+
+  .admin-panel h3 {
+    margin-top: 20px;
+    margin-bottom: 10px;
+  }
+
+  .admin-panel div {
+    margin-bottom: 10px;
+  }
+
+  .admin-panel ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  .admin-panel li {
+    margin-bottom: 5px;
+  }
+
+  /* Styles pour le mode sombre */
+  body.dark-mode .admin-panel {
+    background-color: #333;
+    color: #fff;
+  }

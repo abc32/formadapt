@@ -1,0 +1,26 @@
+.notifications {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 10;
+  }
+
+  .notification {
+    background-color: #f0f0f0;
+    padding: 10px;
+    margin-bottom: 5px;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .notification.read {
+    opacity: 0.7;
+  }
+
+  /* Styles pour le mode sombre */
+  body.dark-mode .notification {
+    background-color: #555;
+    color: #fff;
+  }

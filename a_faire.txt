@@ -1,0 +1,8 @@
+
+  # Tâches à faire pour FormAdapt
+
+  {/* ... (tâches précédentes) */}
+
+  ## Backend
+  * **Implémenter la gestion des favoris dans l'API (en conjonction avec la tâche de gestion des favoris dans la section Frontend).**
+  </boltAction

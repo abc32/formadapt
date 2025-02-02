@@ -1,0 +1,5 @@
+/* Styles pour le composant Modules */
+  body.dark-mode .modules {
+    background-color: #333;
+    color: #fff;
+  }
