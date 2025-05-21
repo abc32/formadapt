@@ -13,33 +13,46 @@ import Error from './components/Error';
 import ResetPassword from './components/ResetPassword';
 import Login from './components/Login';
 import UpdatePassword from './components/UpdatePassword';
-import AdminPanel from './components/AdminPanel.jsx'; // Import AdminPanel
+import AdminPanel from './components/AdminPanel.jsx';
+import { fetchWithAuth } from './utils/api.js'; // Import fetchWithAuth
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(!!localStorage.getItem('token'));
   const [userRole, setUserRole] = useState(localStorage.getItem('role') || 'user');
   const navigate = useNavigate();
 
-  // Modified handleLogin to accept role and set it in state & localStorage
   const handleLogin = (role) => {
     setIsLoggedIn(true);
     setUserRole(role);
-    localStorage.setItem('role', role); // Centralize role storage update
+    localStorage.setItem('role', role);
   };
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/logout', {
-        method: 'POST',
-        headers: { 'Authorization': localStorage.getItem('token') },
-      });
+      // Use fetchWithAuth for the logout call
+      const response = await fetchWithAuth('/api/logout', { method: 'POST' });
+      
+      if (!response.ok && response.status !== 401) { // 401 is handled by fetchWithAuth by redirecting
+        // Handle other errors if needed, though fetchWithAuth might throw for 401
+        console.error('Logout request failed with status:', response.status);
+        // Optionally, still attempt to clear local data if server logout fails for other reasons
+      }
+      // If fetchWithAuth handles 401 by redirecting, the following lines might not always be reached
+      // or might be redundant if the page reloads. However, it's good for explicit cleanup.
+    } catch (error) {
+      // Error handling for fetchWithAuth (e.g., network error or if it throws on 401)
+      console.error('Logout failed:', error.message);
+      // Even if the API call fails, attempt to clear local session data
+    } finally {
+      // Always clear local storage and update state regardless of API call success/failure
+      // This ensures client-side logout even if server is unreachable or errors.
       localStorage.removeItem('token');
       localStorage.removeItem('role');
       setIsLoggedIn(false);
       setUserRole('user');
-      navigate('/login');
-    } catch (error) {
-      console.error('Logout failed', error);
+      if (window.location.pathname !== '/login') { // Prevent loop if already on login page due to fetchWithAuth redirect
+          navigate('/login');
+      }
     }
   };
 
@@ -72,10 +85,8 @@ function App() {
           <Route path="/module/:moduleId" element={<Module />} />
           <Route path="/modules" element={<Modules />} />
           {isLoggedIn && <Route path="/dashboard" element={<Dashboard />} />}
-          {/* Changed admin route to use AdminPanel */}
           {isLoggedIn && userRole === 'admin' && <Route path="/admin" element={<AdminPanel />} />}
           <Route path="/reset-password" element={<ResetPassword />} />
-          {/* Passed handleLogin to Login component */}
           <Route path="/login" element={<Login onLoginSuccess={handleLogin} />} />
           <Route path="/update-password/:token" element={<UpdatePassword />} />
         </Routes>
