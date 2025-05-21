@@ -11,6 +11,7 @@ const http = require('http');
       nom TEXT NOT NULL,
       email TEXT UNIQUE NOT NULL,
       password TEXT NOT NULL,
+      salt TEXT NOT NULL,
       role TEXT NOT NULL
     );
   `);
@@ -39,11 +40,21 @@ const http = require('http');
     );
   `);
 
-  db.exec(`
-    INSERT INTO users (nom, email, password, role) VALUES
-    ('Admin', 'admin@example.com', 'password', 'admin'),
-    ('User', 'user@example.com', 'password', 'user');
-  `);
+  db.exec(() => {
+    const usersToInsert = [
+      { name: 'Admin', email: 'admin@example.com', password: 'password', role: 'admin' },
+      { name: 'User', email: 'user@example.com', password: 'password', role: 'user' }
+    ];
+
+    const insertStmt = db.prepare('INSERT INTO users (nom, email, password, salt, role) VALUES (?, ?, ?, ?, ?)');
+
+    for (const user of usersToInsert) {
+      const salt = crypto.randomBytes(16).toString('hex');
+      const hashedPassword = crypto.pbkdf2Sync(user.password, salt, 1000, 64, 'sha512').toString('hex');
+      insertStmt.run(user.name, user.email, hashedPassword, salt, user.role);
+    }
+    console.log('Initial users inserted with hashed passwords.');
+  });
 
   db.exec(`
     INSERT INTO modules (nom, contenu, document, audio_fr, audio_en, audio_es, subtitles_fr, subtitles_en, subtitles_es) VALUES
@@ -93,30 +104,43 @@ const http = require('http');
       req.on('end', async () => {
         try {
           const { email, password } = JSON.parse(body);
-          const user = await db.get('SELECT id, role FROM users WHERE email = ? AND password = ?', [email, password]);
+          const user = await db.get('SELECT id, role, password, salt FROM users WHERE email = ?', [email]);
           if (user) {
-            const token = createSession(user);
-            res.statusCode = 200;
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ token, role: user.role }));
+            const verifyHash = crypto.pbkdf2Sync(password, user.salt, 1000, 64, 'sha512').toString('hex');
+            if (verifyHash === user.password) {
+              const token = createSession(user);
+              res.statusCode = 200;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ token, role: user.role }));
+            } else {
+              res.statusCode = 401;
+              res.end('Invalid credentials');
+            }
           } else {
             res.statusCode = 401;
             res.end('Invalid credentials');
           }
         } catch (error) {
-          res.statusCode = 400;
-          res.end('Invalid request');
+          console.error("Login error:", error);
+          if (error instanceof SyntaxError) {
+            res.statusCode = 400;
+            res.end('Invalid JSON format in request body');
+          } else {
+            res.statusCode = 400;
+            res.end('Invalid request');
+          }
         }
       });
     } else if (parsedUrl.pathname === '/api/logout') {
       const token = req.headers.authorization;
-      if (token && sessions[token]) {
-        delete sessions[token];
+      const session = verifyToken(token); // Use verifyToken to check expiration too
+      if (session) { // verifyToken returns null if not found or expired
+        delete sessions[token]; // Token is the key from headers
         res.statusCode = 200;
-        res.end('Logged out');
+        res.end('Logged out successfully');
       } else {
         res.statusCode = 401;
-        res.end('Unauthorized');
+        res.end('Unauthorized: Invalid or expired token');
       }
     } else if (parsedUrl.pathname === '/api/reset-password' && req.method === 'POST') {
       let body = '';
@@ -133,14 +157,20 @@ const http = require('http');
             // Simuler l'envoi d'un e-mail
             console.log(`Réinitialisation du mot de passe pour ${email}. Token: ${token}`);
             res.statusCode = 200;
-            res.end('Reset email sent');
+            res.end('Password reset email sent successfully. Please check your inbox.');
           } else {
             res.statusCode = 404;
-            res.end('User not found');
+            res.end('User with that email not found.');
           }
         } catch (error) {
-          res.statusCode = 400;
-          res.end('Invalid request');
+          console.error("Reset password error:", error);
+          if (error instanceof SyntaxError) {
+            res.statusCode = 400;
+            res.end('Invalid JSON format in request body');
+          } else {
+            res.statusCode = 400;
+            res.end('Invalid request during password reset.');
+          }
         }
       });
     } else if (parsedUrl.pathname.startsWith('/api/update-password/') && req.method === 'POST') {
@@ -154,36 +184,56 @@ const http = require('http');
           const { password } = JSON.parse(body);
           const userId = resetTokens[token];
           if (userId) {
+            if (!password) {
+              res.statusCode = 400;
+              res.end('Missing required field: password');
+              return;
+            }
             const user = await db.get('SELECT id FROM users WHERE id = ?', [userId]);
             if (user) {
-              await db.run('UPDATE users SET password = ? WHERE id = ?', [password, userId]);
-              delete resetTokens[token];
+              const salt = crypto.randomBytes(16).toString('hex');
+              const hashedPassword = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
+              await db.run('UPDATE users SET password = ?, salt = ? WHERE id = ?', [hashedPassword, salt, userId]);
+              delete resetTokens[token]; // Token has been used
               res.statusCode = 200;
-              res.end('Password updated');
+              res.end('Password updated successfully.');
             } else {
+              // This case should ideally not happen if token maps to a valid user ID that was subsequently deleted.
               res.statusCode = 404;
-              res.end('User not found');
+              res.end('User associated with this token not found.');
             }
           } else {
             res.statusCode = 400;
-            res.end('Invalid token');
+            res.end('Invalid or expired password reset token.');
           }
         } catch (error) {
-          res.statusCode = 400;
-          res.end('Invalid request');
+          console.error("Update password error:", error);
+          if (error instanceof SyntaxError) {
+            res.statusCode = 400;
+            res.end('Invalid JSON format in request body');
+          } else {
+            res.statusCode = 400;
+            res.end('Invalid request during password update.');
+          }
         }
       });
     } else if (parsedUrl.pathname === '/api/users' && req.method === 'GET') {
       const token = req.headers.authorization;
       const session = verifyToken(token);
       if (session && session.role === 'admin') {
-        const users = await db.all('SELECT id, nom, email, role FROM users');
-        res.statusCode = 200;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify(users));
+        try {
+          const users = await db.all('SELECT id, nom, email, role FROM users');
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(users));
+        } catch (dbError) {
+          console.error("Error fetching users:", dbError);
+          res.statusCode = 500;
+          res.end('Error fetching users from database.');
+        }
       } else {
         res.statusCode = 401;
-        res.end('Unauthorized');
+        res.end('Unauthorized: Admin role required or invalid/expired token.');
       }
     } else if (parsedUrl.pathname === '/api/users' && req.method === 'POST') {
       const token = req.headers.authorization;
@@ -196,19 +246,38 @@ const http = require('http');
         req.on('end', async () => {
           try {
             const newUser = JSON.parse(body);
-            const result = await db.run('INSERT INTO users (nom, email, password, role) VALUES (?, ?, ?, ?)', [newUser.nom, newUser.email, newUser.password, newUser.role]);
+            if (!newUser.nom || !newUser.email || !newUser.password || !newUser.role) {
+              let missingFields = ['nom', 'email', 'password', 'role'].filter(field => !newUser[field]);
+              res.statusCode = 400;
+              res.end(`Missing required field(s): ${missingFields.join(', ')}`);
+              return;
+            }
+
+            const salt = crypto.randomBytes(16).toString('hex');
+            const hashedPassword = crypto.pbkdf2Sync(newUser.password, salt, 1000, 64, 'sha512').toString('hex');
+            const result = await db.run('INSERT INTO users (nom, email, password, salt, role) VALUES (?, ?, ?, ?, ?)', [newUser.nom, newUser.email, hashedPassword, salt, newUser.role]);
             newUser.id = result.lastInsertRowid;
+            delete newUser.password; // Do not send password back
             res.statusCode = 201;
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify(newUser));
           } catch (error) {
-            res.statusCode = 400;
-            res.end('Invalid request');
+            console.error("Create user error:", error);
+            if (error instanceof SyntaxError) {
+              res.statusCode = 400;
+              res.end('Invalid JSON format in request body');
+            } else if (error.message && error.message.includes('UNIQUE constraint failed: users.email')) {
+              res.statusCode = 409; // Conflict
+              res.end('Email already in use.');
+            } else {
+              res.statusCode = 400;
+              res.end('Invalid request or error creating user.');
+            }
           }
         });
       } else {
         res.statusCode = 401;
-        res.end('Unauthorized');
+        res.end('Unauthorized: Admin role required or invalid/expired token.');
       }
     } else if (parsedUrl.pathname.startsWith('/api/users/') && req.method === 'PUT') {
       const token = req.headers.authorization;
@@ -222,138 +291,236 @@ const http = require('http');
         req.on('end', async () => {
           try {
             const updatedUser = JSON.parse(body);
+             if (!updatedUser.nom || !updatedUser.email || !updatedUser.role) {
+              let missingFields = ['nom', 'email', 'role'].filter(field => !updatedUser[field]);
+              res.statusCode = 400;
+              res.end(`Missing required field(s): ${missingFields.join(', ')}`);
+              return;
+            }
+            // Ensure password is not updated here, separate endpoint for that
             await db.run('UPDATE users SET nom = ?, email = ?, role = ? WHERE id = ?', [updatedUser.nom, updatedUser.email, updatedUser.role, userId]);
             res.statusCode = 200;
-            res.end('User updated');
+            res.end('User updated successfully.');
           } catch (error) {
-            res.statusCode = 400;
-            res.end('Invalid request');
+            console.error(`Error updating user ${userId}:`, error);
+            if (error instanceof SyntaxError) {
+              res.statusCode = 400;
+              res.end('Invalid JSON format in request body');
+            } else if (error.message && error.message.includes('UNIQUE constraint failed: users.email')) {
+              res.statusCode = 409; // Conflict
+              res.end('Email already in use by another user.');
+            } else {
+              res.statusCode = 400;
+              res.end('Invalid request or error updating user.');
+            }
           }
         });
       } else {
         res.statusCode = 401;
-        res.end('Unauthorized');
+        res.end('Unauthorized: Admin role required or invalid/expired token.');
       }
     } else if (parsedUrl.pathname.startsWith('/api/users/') && req.method === 'DELETE') {
       const token = req.headers.authorization;
       const session = verifyToken(token);
       if (session && session.role === 'admin') {
         const userId = parsedUrl.pathname.split('/').pop();
-        await db.run('DELETE FROM users WHERE id = ?', [userId]);
-        res.statusCode = 200;
-        res.end('User deleted');
+        try {
+          const result = await db.run('DELETE FROM users WHERE id = ?', [userId]);
+          if (result.changes > 0) {
+            res.statusCode = 200;
+            res.end('User deleted successfully.');
+          } else {
+            res.statusCode = 404;
+            res.end('User not found or already deleted.');
+          }
+        } catch (dbError) {
+          console.error(`Error deleting user ${userId}:`, dbError);
+          res.statusCode = 500;
+          res.end('Error deleting user from database.');
+        }
       } else {
         res.statusCode = 401;
-        res.end('Unauthorized');
+        res.end('Unauthorized: Admin role required or invalid/expired token.');
       }
     } else if (parsedUrl.pathname === '/api/user/modules') {
       const token = req.headers.authorization;
       const session = verifyToken(token);
       if (session) {
+        try {
+          const modules = await db.all('SELECT id, nom, contenu, document, audio_fr, audio_en, audio_es, subtitles_fr, subtitles_en, subtitles_es FROM modules');
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(modules));
+        } catch (dbError) {
+          console.error("Error fetching user modules:", dbError);
+          res.statusCode = 500;
+          res.end('Error fetching modules from database.');
+        }
+      } else {
+        res.statusCode = 401;
+        res.end('Unauthorized: Invalid or expired token.');
+      }
+    } else if (parsedUrl.pathname === '/api/modules' && req.method === 'GET') {
+      try {
+        let queryBuilder = 'SELECT id, nom, contenu, document, audio_fr, audio_en, audio_es, subtitles_fr, subtitles_en, subtitles_es FROM modules';
+        const params = [];
+        if (query.search) {
+          queryBuilder += ' WHERE LOWER(nom) LIKE ?';
+          params.push(`%${query.search.toLowerCase()}%`);
+        }
+
+        if (query.sort) {
+          if (query.sort === 'nom') {
+            queryBuilder += ' ORDER BY nom';
+          }
+          // Note: Sorting by progress would require progress data, which is not part of this subtask yet.
+          // else if (query.sort === 'progress') { /* queryBuilder += ' ORDER BY progress DESC'; */ }
+        }
+
+        const modules = await db.all(queryBuilder, params);
         res.statusCode = 200;
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify(modules));
-      } else {
-        res.statusCode = 401;
-        res.end('Unauthorized');
+      } catch (dbError) {
+        console.error("Error fetching all modules:", dbError);
+        res.statusCode = 500;
+        res.end('Error fetching modules from database.');
       }
-    } else if (parsedUrl.pathname === '/api/modules') {
-      let filteredModules = [...modules];
-
-      if (query.search) {
-        const searchTerm = query.search.toLowerCase();
-        filteredModules = filteredModules.filter(module =>
-          module.nom.toLowerCase().includes(searchTerm)
-        );
+    } else if (parsedUrl.pathname.startsWith('/api/module/') && !parsedUrl.pathname.includes('/document/') && !parsedUrl.pathname.includes('/media/') && !parsedUrl.pathname.includes('/quiz/') && req.method === 'GET') {
+      const moduleIdStr = parsedUrl.pathname.split('/').pop();
+      const moduleId = parseInt(moduleIdStr, 10);
+      if (isNaN(moduleId)) {
+        res.statusCode = 400;
+        res.end(`Invalid module ID format: ${moduleIdStr}`);
+        return;
       }
-
-      if (query.sort) {
-        const sortOption = query.sort;
-        filteredModules.sort((a, b) => {
-          if (sortOption === 'nom') {
-            return a.nom.localeCompare(b.nom);
-          } else if (sortOption === 'progress') {
-            return b.progress - a.progress;
-          }
-          return 0;
-        });
+      try {
+        const module = await db.get('SELECT id, nom, contenu, document, audio_fr, audio_en, audio_es, subtitles_fr, subtitles_en, subtitles_es FROM modules WHERE id = ?', [moduleId]);
+        if (module) {
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(module));
+        } else {
+          res.statusCode = 404;
+          res.end(`Module with ID ${moduleId} not found.`);
+        }
+      } catch (dbError) {
+        console.error(`Error fetching module ${moduleId}:`, dbError);
+        res.statusCode = 500;
+        res.end('Error fetching module from database.');
       }
-
-      res.statusCode = 200;
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify(filteredModules));
-    } else if (parsedUrl.pathname.startsWith('/api/module/')) {
-      const moduleId = parsedUrl.pathname.split('/').pop();
-      const module = modulesData[moduleId];
-
-      if (module) {
-        res.statusCode = 200;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify(module));
-      } else {
-        res.statusCode = 404;
-        res.end('Module not found');
+    } else if (parsedUrl.pathname.startsWith('/api/module/document/') && req.method === 'GET') {
+      const moduleIdStr = parsedUrl.pathname.split('/').pop();
+      const moduleId = parseInt(moduleIdStr, 10);
+       if (isNaN(moduleId)) {
+        res.statusCode = 400;
+        res.end(`Invalid module ID format: ${moduleIdStr}`);
+        return;
       }
-    } else if (parsedUrl.pathname.startsWith('/api/module/document/')) {
-      const moduleId = parsedUrl.pathname.split('/').pop();
-      const module = modulesData[moduleId];
-
-      if (module && module.document) {
-        res.statusCode = 200;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ document: module.document }));
-      } else {
-        res.statusCode = 404;
-        res.end('Document not found');
+      try {
+        const module = await db.get('SELECT document FROM modules WHERE id = ?', [moduleId]);
+        if (module && module.document) {
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ document: module.document }));
+        } else {
+          res.statusCode = 404;
+          res.end(`Document not found for module ID ${moduleId}.`);
+        }
+      } catch (dbError) {
+        console.error(`Error fetching document for module ${moduleId}:`, dbError);
+        res.statusCode = 500;
+        res.end('Error fetching document from database.');
       }
-    } else if (parsedUrl.pathname.startsWith('/api/module/media/')) {
-      const moduleId = parsedUrl.pathname.split('/').pop();
+    } else if (parsedUrl.pathname.startsWith('/api/module/media/') && req.method === 'GET') {
+      const moduleIdStr = parsedUrl.pathname.split('/').pop();
+      const moduleId = parseInt(moduleIdStr, 10);
+      if (isNaN(moduleId)) {
+        res.statusCode = 400;
+        res.end(`Invalid module ID format: ${moduleIdStr}`);
+        return;
+      }
       const lang = query.lang || 'fr';
-      const module = modulesData[moduleId];
-
-      if (module) {
-        res.statusCode = 200;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({
-          audio: module.audio[lang] || module.audio.fr,
-          subtitles: module.subtitles[lang] || module.subtitles.fr,
-        }));
-      } else {
-        res.statusCode = 404;
-        res.end('Media not found');
+      try {
+        const module = await db.get('SELECT audio_fr, audio_en, audio_es, subtitles_fr, subtitles_en, subtitles_es FROM modules WHERE id = ?', [moduleId]);
+        if (module) {
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({
+            audio: module[`audio_${lang}`] || module.audio_fr, // Fallback to French if specified lang not found
+            subtitles: module[`subtitles_${lang}`] || module.subtitles_fr, // Fallback to French
+          }));
+        } else {
+          res.statusCode = 404;
+          res.end(`Media not found for module ID ${moduleId}.`);
+        }
+      } catch (dbError) {
+        console.error(`Error fetching media for module ${moduleId}:`, dbError);
+        res.statusCode = 500;
+        res.end('Error fetching media from database.');
       }
     } else if (parsedUrl.pathname.startsWith('/api/translate/')) {
-      const text = query.text;
-      const lang = query.lang || 'fr';
-      // Simuler la traduction
-      let translatedText = text;
-      if (lang === 'en') {
-        translatedText = `Translated to English: ${text}`;
-      } else if (lang === 'es') {
-        translatedText = `Traducido al español: ${text}`;
+      // IMPORTANT: This is a placeholder/simulated translation endpoint.
+      // It does not perform real translation and should not be used in production for actual translation needs.
+      const textToTranslate = query.text;
+      const targetLang = query.lang || 'fr';
+
+      if (!textToTranslate) {
+        res.statusCode = 400;
+        res.end('Missing required query parameter: text');
+        return;
       }
+
+      let translatedTextResult = textToTranslate;
+      if (targetLang === 'en') {
+        translatedTextResult = `(Simulated English Translation): ${textToTranslate}`;
+      } else if (targetLang === 'es') {
+        translatedTextResult = `(Simulación de Traducción al Español): ${textToTranslate}`;
+      } else if (targetLang !== 'fr') {
+        // If language is not 'fr', 'en', or 'es', acknowledge it's not supported by this placeholder
+        translatedTextResult = `(Simulated Translation to ${targetLang} - not supported, returning original): ${textToTranslate}`;
+      }
+      // For 'fr', it just returns the original text as per previous logic.
+
       res.statusCode = 200;
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ translatedText }));
+      res.end(JSON.stringify({ translatedText: translatedTextResult }));
     } else if (parsedUrl.pathname === '/api/statistics' && req.method === 'GET') {
       const token = req.headers.authorization;
       const session = verifyToken(token);
       if (session && session.role === 'admin') {
-        const activeUsers = Object.keys(sessions).length;
-        const totalModules = modules.length;
-        const averageProgress = modules.reduce((sum, module) => sum + module.progress, 0) / totalModules;
-        res.statusCode = 200;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ activeUsers, totalModules, averageProgress }));
+        try {
+          const activeUsers = Object.keys(sessions).length; // This remains session-based
+          const totalModulesResult = await db.get('SELECT COUNT(*) as count FROM modules');
+          const totalModules = totalModulesResult.count;
+          // Average progress calculation would require a progress tracking mechanism,
+          // which is not fully implemented in the database yet for this subtask.
+          // For now, we'll set averageProgress to 0.
+          const averageProgress = 0; // Placeholder
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ activeUsers, totalModules, averageProgress }));
+        } catch (dbError) {
+          console.error("Error fetching statistics:", dbError);
+          res.statusCode = 500;
+          res.end('Error fetching statistics from database.');
+        }
       } else {
         res.statusCode = 401;
-        res.end('Unauthorized');
+        res.end('Unauthorized: Admin role required or invalid/expired token.');
       }
-    } else if (parsedUrl.pathname.startsWith('/api/module/') && req.method === 'POST') {
-      const moduleId = parsedUrl.pathname.split('/').pop();
+    } else if (parsedUrl.pathname.startsWith('/api/module/') && req.method === 'POST' && !parsedUrl.pathname.includes('/quiz/')) { // Ensure this doesn't clash with quiz for progress update
+      const moduleIdStr = parsedUrl.pathname.split('/').pop();
+      const moduleId = parseInt(moduleIdStr, 10);
+      if (isNaN(moduleId)) {
+        res.statusCode = 400;
+        res.end(`Invalid module ID format: ${moduleIdStr}`);
+        return;
+      }
       const token = req.headers.authorization;
-      if (token && sessions[token]) {
-        const userId = sessions[token].userId;
+      const session = verifyToken(token);
+      if (session) {
+        const userId = session.userId;
         let body = '';
         req.on('data', chunk => {
           body += chunk.toString();
@@ -361,35 +528,60 @@ const http = require('http');
         req.on('end', () => {
           try {
             const { progress, score } = JSON.parse(body);
+            if (typeof progress !== 'number' || typeof score !== 'number') {
+              res.statusCode = 400;
+              res.end('Invalid data: progress and score must be numbers.');
+              return;
+            }
+            // This part still uses userProgress object as per previous logic.
+            // Integrating progress into the database is a larger task for a future step.
             if (!userProgress[userId]) {
               userProgress[userId] = {};
             }
             userProgress[userId][moduleId] = { progress, score };
             res.statusCode = 200;
-            res.end('Progress and score updated');
+            res.end('Progress and score updated (in-memory).');
           } catch (error) {
-            res.statusCode = 400;
-            res.end('Invalid request');
+            console.error(`Error updating progress for module ${moduleId}:`, error);
+            if (error instanceof SyntaxError) {
+              res.statusCode = 400;
+              res.end('Invalid JSON format in request body');
+            } else {
+              res.statusCode = 400;
+              res.end('Invalid request when updating progress.');
+            }
           }
         });
       } else {
         res.statusCode = 401;
-        res.end('Unauthorized');
+        res.end('Unauthorized: Invalid or expired token.');
       }
-    } else if (parsedUrl.pathname.startsWith('/api/module/quiz/')) {
-      const moduleId = parsedUrl.pathname.split('/').pop();
-      const module = modulesData[moduleId];
-      if (module && module.quiz) {
-        res.statusCode = 200;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify(module.quiz));
-      } else {
-        res.statusCode = 404;
-        res.end('Quiz not found');
+    } else if (parsedUrl.pathname.startsWith('/api/module/quiz/') && req.method === 'GET') {
+      const moduleIdStr = parsedUrl.pathname.split('/').pop();
+      const moduleId = parseInt(moduleIdStr, 10);
+      if (isNaN(moduleId)) {
+        res.statusCode = 400;
+        res.end(`Invalid module ID format: ${moduleIdStr}`);
+        return;
+      }
+      try {
+        const quiz = await db.get('SELECT questions FROM quizzes WHERE moduleId = ?', [moduleId]);
+        if (quiz) {
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(quiz.questions); // Assuming questions are stored as JSON string
+        } else {
+          res.statusCode = 404;
+          res.end(`Quiz not found for module ID ${moduleId}.`);
+        }
+      } catch (dbError) {
+        console.error(`Error fetching quiz for module ${moduleId}:`, dbError);
+        res.statusCode = 500;
+        res.end('Error fetching quiz from database.');
       }
     } else {
       res.statusCode = 404;
-      res.end('Not Found');
+      res.end('Endpoint not found or method not supported.');
     }
   });
 

@@ -1,8 +1,9 @@
 import './Home.css';
   import { Link } from 'react-router-dom';
   import { useEffect, useState } from 'react';
-  import translate from '../i18n';
+  // Removed unused: import translate from '../i18n';
   import ApiError from './ApiError';
+  import { useI18n } from '../i18n'; // Ensure useI18n is imported if not already (it is used)
 
   function Home() {
     const { translate } = useI18n();
