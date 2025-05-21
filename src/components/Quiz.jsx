@@ -48,9 +48,10 @@ import React, { useState, useEffect } from 'react';
 
     if (showResults) {
       return (
-        <div>
+        // Added role="alert" and aria-live for results announcement
+        <div role="alert" aria-live="assertive"> 
           <h2>{translate('quiz.title')}</h2>
-          <p>Votre score : {score} / {questions.length}</p>
+          <p>{translate('quiz.yourScore', { score, total: questions.length }) || `Your score: ${score} / ${questions.length}`}</p>
         </div>
       );
     }
@@ -63,32 +64,42 @@ import React, { useState, useEffect } from 'react';
 
     return (
       <div>
-        <h2 id="quiz-title" tabIndex={0}>{translate('quiz.title')}</h2>
+      {/* Removed tabIndex from h2, as it's a heading, not interactive. */}
+      <h2 id="quiz-title">{translate('quiz.title')}</h2> 
         <form onSubmit={(e) => { e.preventDefault(); handleSubmitQuiz(); }}>
-          <div>
-            <p id={`question-${question.id}-label`} tabIndex={0}>{currentQuestion + 1}. {question.question}</p>
-            <ul aria-labelledby={`question-${question.id}-label`} role="radiogroup">
-              {question.options.map((option) => (
-                <li key={option}>
-                  <label htmlFor={`question-${question.id}-${option}`}>
+        {/* Using fieldset and legend for better semantics for question and options */}
+        <fieldset>
+          <legend id={`question-${question.id}-label`}>{currentQuestion + 1}. {question.question}</legend>
+          {/* The role="radiogroup" is now on the fieldset or can be on a div wrapping the ul if ul is preferred over direct children of fieldset for styling */}
+          <ul className="quiz-options" role="radiogroup" aria-labelledby={`question-${question.id}-label`}>
+            {question.options.map((option, index) => (
+              // Added a more unique key using index as options could be non-unique strings in some cases
+              <li key={`${question.id}-option-${index}`}> 
+                <label htmlFor={`question-${question.id}-option-${index}`}>
                     <input
                       type="radio"
-                      id={`question-${question.id}-${option}`}
-                      name={`question-${question.id}`}
+                    id={`question-${question.id}-option-${index}`}
+                    name={`question-${question.id}`} // Radios in a group must have the same name
                       value={option}
                       onChange={(e) => handleAnswer(question.id, e.target.value)}
                       checked={userAnswers[question.id] === option}
+                    // aria-describedby if there's any specific description for this option
                     />
                     {option}
                   </label>
                 </li>
               ))}
             </ul>
-          </div>
+        </fieldset>
           {currentQuestion < questions.length - 1 ? (
-            <button type="button" onClick={handleNextQuestion} disabled={!userAnswers[question.id]}>Question suivante</button>
+          <button type="button" onClick={handleNextQuestion} disabled={!userAnswers[question.id]} className="quiz-button next">
+            {translate('quiz.nextQuestion') || 'Next Question'}
+          </button>
           ) : (
-            <button type="submit" disabled={!userAnswers[question.id]}>Soumettre le quiz</button>
+          <button type="submit" disabled={Object.keys(userAnswers).length !== questions.length} className="quiz-button submit"> 
+            {/* Ensure all questions are answered before enabling submit if that's the logic */}
+            {translate('quiz.submitQuiz') || 'Submit Quiz'}
+          </button>
           )}
         </form>
         {error && <ApiError message={error} />}

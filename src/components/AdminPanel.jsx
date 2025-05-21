@@ -3,12 +3,21 @@ import React, { useState, useEffect } from 'react';
   import translate from '../i18n';
   import ApiError from './ApiError';
 
-  function AdminPanel() {
-    const [modules, setModules] = useState(
-      JSON.parse(localStorage.getItem('adminModules')) || []
-    );
-    const [newModule, setNewModule] = useState({ nom: '', contenu: '' });
-    const [editModuleId, setEditModuleId] = useState(null);
+  // Assuming fetchWithAuth is passed as a prop from App.jsx
+  function AdminPanel({ fetchWithAuth }) {
+    const [modules, setModules] = useState([]); // Will be fetched from API
+    const [newModule, setNewModule] = useState({ 
+      nom: '', 
+      contenu: '', 
+      document: '', 
+      audio_fr: '', 
+      audio_en: '', 
+      audio_es: '', 
+      subtitles_fr: '', 
+      subtitles_en: '', 
+      subtitles_es: '' 
+    });
+    const [editModuleId, setEditModuleId] = useState(null); // To store ID of module being edited
     const [users, setUsers] = useState([]);
     const [newUser, setNewUser] = useState({ nom: '', email: '', role: 'user' });
     const [editUserId, setEditUserId] = useState(null);
@@ -17,80 +26,158 @@ import React, { useState, useEffect } from 'react';
       totalModules: 0,
       averageProgress: 0,
     });
-    const [currentUserRole, setCurrentUserRole] = useState(localStorage.getItem('role') || 'user');
+    const [currentUserRole, setCurrentUserRole] = useState(localStorage.getItem('userRole') || 'user'); // Use userRole from localStorage
     const [error, setError] = useState(null);
+    const [loading, setLoading] = useState(false); // For general loading state
 
+    // Fetch initial data (Users, Statistics, and Modules)
     useEffect(() => {
-      localStorage.setItem('adminModules', JSON.stringify(modules));
-    }, [modules]);
-
-    useEffect(() => {
-      const fetchUsers = async () => {
-        try {
-          const response = await fetch('/api/users', {
-            headers: { 'Authorization': localStorage.getItem('token') },
-          });
-          if (!response.ok) {
-            throw new Error('Failed to fetch users');
+      const fetchAdminData = async () => {
+        if (currentUserRole !== 'admin' || typeof fetchWithAuth !== 'function') {
+          if (currentUserRole === 'admin' && typeof fetchWithAuth !== 'function') {
+            setError("Admin functions disabled: Authentication service not available.");
           }
-          const data = await response.json();
-          setUsers(data);
+          return;
+        }
+        setLoading(true);
+        setError(null);
+
+        try {
+          const usersPromise = fetchWithAuth('/api/users').then(res => {
+            if (!res.ok) return res.json().then(err => { throw new Error(err.message || 'Failed to fetch users')});
+            return res.json();
+          });
+          const statisticsPromise = fetchWithAuth('/api/statistics').then(res => {
+            if (!res.ok) return res.json().then(err => { throw new Error(err.message || 'Failed to fetch statistics')});
+            return res.json();
+          });
+          // Fetch modules
+          const modulesPromise = fetchWithAuth('/api/modules').then(res => {
+            if (!res.ok) return res.json().then(err => { throw new Error(err.message || 'Failed to fetch modules')});
+            return res.json();
+          });
+
+          const [usersData, statisticsData, modulesData] = await Promise.all([
+            usersPromise, 
+            statisticsPromise, 
+            modulesPromise
+          ]);
+          
+          setUsers(usersData || []);
+          setStatistics(statisticsData || { activeUsers: 0, totalModules: 0, averageProgress: 0 });
+          setModules(modulesData || []);
+
         } catch (err) {
-          setError(err.message);
+          setError(err.message || "An error occurred while fetching admin data.");
+        } finally {
+          setLoading(false);
         }
       };
-      const fetchStatistics = async () => {
-        try {
-          const response = await fetch('/api/statistics', {
-            headers: { 'Authorization': localStorage.getItem('token') },
-          });
-          if (!response.ok) {
-            throw new Error('Failed to fetch statistics');
-          }
-          const data = await response.json();
-          setStatistics(data);
-        } catch (err) {
-          setError(err.message);
-        }
-      };
-      if (currentUserRole === 'admin') {
-        fetchUsers();
-        fetchStatistics();
-      }
-    }, [currentUserRole]);
+
+      fetchAdminData();
+    }, [currentUserRole, fetchWithAuth]);
 
     const handleModuleInputChange = (event) => {
-      setNewModule({ ...newModule, [event.target.name]: event.target.value });
+      // Ensure all defined fields in newModule are updated
+      const { name, value } = event.target;
+      setNewModule(prev => ({ ...prev, [name]: value }));
     };
 
-    const handleAddModule = () => {
-      if (newModule.nom && newModule.contenu) {
-        const newId = Date.now();
-        setModules([...modules, { id: newId, ...newModule }]);
-        setNewModule({ nom: '', contenu: '' });
+    const resetModuleForm = () => {
+      setNewModule({ 
+        nom: '', contenu: '', document: '', audio_fr: '', audio_en: '', 
+        audio_es: '', subtitles_fr: '', subtitles_en: '', subtitles_es: '' 
+      });
+      setEditModuleId(null);
+    };
+
+    const fetchModulesList = async () => {
+      if (typeof fetchWithAuth !== 'function') return;
+      setLoading(true);
+      try {
+        const response = await fetchWithAuth('/api/modules');
+        if (!response.ok) {
+          const errData = await response.json().catch(() => null);
+          throw new Error(errData?.message || 'Failed to fetch modules');
+        }
+        const data = await response.json();
+        setModules(data || []);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
       }
     };
 
-    const handleEditModule = (moduleId) => {
-      setEditModuleId(moduleId);
-      const moduleToEdit = modules.find(module => module.id === moduleId);
-      setNewModule(moduleToEdit);
-    };
+    const handleSaveModule = async () => { // Handles both Create and Update
+      if (!newModule.nom || !newModule.contenu) {
+        setError("Module name (nom) and content (contenu) are required.");
+        return;
+      }
+      if (typeof fetchWithAuth !== 'function') {
+        setError("Action disabled: Authentication service not available.");
+        return;
+      }
+      setLoading(true);
+      setError(null);
+      const method = editModuleId ? 'PUT' : 'POST';
+      const url = editModuleId ? `/api/modules/${editModuleId}` : '/api/modules';
 
-    const handleUpdateModule = () => {
-      if (newModule.nom && newModule.contenu && editModuleId) {
-        const updatedModules = modules.map(module =>
-          module.id === editModuleId ? { ...module, ...newModule } : module
-        );
-        setModules(updatedModules);
-        setEditModuleId(null);
-        setNewModule({ nom: '', contenu: '' });
+      try {
+        const response = await fetchWithAuth(url, {
+          method: method,
+          body: JSON.stringify(newModule),
+        });
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ message: `Failed to ${editModuleId ? 'update' : 'create'} module` }));
+          throw new Error(errorData.message);
+        }
+        await fetchModulesList(); // Refresh list
+        resetModuleForm();
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
       }
     };
 
-    const handleDeleteModule = (moduleId) => {
-      const updatedModules = modules.filter(module => module.id !== moduleId);
-      setModules(updatedModules);
+    const handleEditModule = (module) => {
+      setEditModuleId(module._id); // Use _id from MongoDB
+      setNewModule({ // Pre-fill form with all fields from the module
+        nom: module.nom || '',
+        contenu: module.contenu || '',
+        document: module.document || '',
+        audio_fr: module.audio_fr || '',
+        audio_en: module.audio_en || '',
+        audio_es: module.audio_es || '',
+        subtitles_fr: module.subtitles_fr || '',
+        subtitles_en: module.subtitles_en || '',
+        subtitles_es: module.subtitles_es || '',
+      });
+    };
+    
+    const handleDeleteModule = async (moduleId) => {
+      if (!window.confirm(translate('adminPanel.confirmDeleteModule') || "Are you sure you want to delete this module?")) {
+        return;
+      }
+      if (typeof fetchWithAuth !== 'function') {
+        setError("Action disabled: Authentication service not available.");
+        return;
+      }
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await fetchWithAuth(`/api/modules/${moduleId}`, { method: 'DELETE' });
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ message: 'Failed to delete module' }));
+          throw new Error(errorData.message);
+        }
+        await fetchModulesList(); // Refresh list
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
     };
 
     const handleUserInputChange = (event) => {
@@ -98,25 +185,24 @@ import React, { useState, useEffect } from 'react';
     };
 
     const handleAddUser = async () => {
-      if (newUser.nom && newUser.email) {
+      if (newUser.nom && newUser.email && typeof fetchWithAuth === 'function') {
         try {
-          const response = await fetch('/api/users', {
+          const response = await fetchWithAuth('/api/users', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': localStorage.getItem('token'),
-            },
-            body: JSON.stringify(newUser),
+            body: JSON.stringify(newUser), // Content-Type is handled by fetchWithAuth
           });
           if (!response.ok) {
-            throw new Error('Failed to add user');
+            const errorData = await response.json().catch(() => ({ message: 'Failed to add user' }));
+            throw new Error(errorData.message);
           }
           const data = await response.json();
           setUsers([...users, data]);
-          setNewUser({ nom: '', email: '', role: 'user' });
+          setNewUser({ nom: '', email: '', role: 'user', password: '' }); // Clear password field too
         } catch (err) {
           setError(err.message);
         }
+      } else if (typeof fetchWithAuth !== 'function') {
+        setError("Action disabled: Authentication service not available.");
       }
     };
 
@@ -127,42 +213,44 @@ import React, { useState, useEffect } from 'react';
     };
 
     const handleUpdateUser = async () => {
-      if (newUser.nom && newUser.email && editUserId) {
+      if (newUser.nom && newUser.email && editUserId && typeof fetchWithAuth === 'function') {
         try {
-          const response = await fetch(`/api/users/${editUserId}`, {
+          // Backend expects role, nom, email. Password is not updated here.
+          const userToUpdate = { nom: newUser.nom, email: newUser.email, role: newUser.role };
+          const response = await fetchWithAuth(`/api/users/${editUserId}`, {
             method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': localStorage.getItem('token'),
-            },
-            body: JSON.stringify(newUser),
+            body: JSON.stringify(userToUpdate), // Send only updatable fields
           });
           if (!response.ok) {
-            throw new Error('Failed to update user');
+            const errorData = await response.json().catch(() => ({ message: 'Failed to update user' }));
+            throw new Error(errorData.message);
           }
-          const updatedUsers = users.map(user =>
-            user.id === editUserId ? { ...user, ...newUser } : user
-          );
-          setUsers(updatedUsers);
+          const updatedUserFromServer = await response.json(); // Get updated user from server
+          setUsers(users.map(user => (user._id === editUserId ? updatedUserFromServer : user))); // Use _id for MongoDB
           setEditUserId(null);
-          setNewUser({ nom: '', email: '', role: 'user' });
+          setNewUser({ nom: '', email: '', role: 'user', password: '' });
         } catch (err) {
           setError(err.message);
         }
+      } else if (typeof fetchWithAuth !== 'function') {
+        setError("Action disabled: Authentication service not available.");
       }
     };
 
     const handleDeleteUser = async (userId) => {
+      if (typeof fetchWithAuth !== 'function') {
+        setError("Action disabled: Authentication service not available.");
+        return;
+      }
       try {
-        const response = await fetch(`/api/users/${userId}`, {
+        const response = await fetchWithAuth(`/api/users/${userId}`, {
           method: 'DELETE',
-          headers: { 'Authorization': localStorage.getItem('token') },
         });
         if (!response.ok) {
-          throw new Error('Failed to delete user');
+          const errorData = await response.json().catch(() => ({ message: 'Failed to delete user' }));
+          throw new Error(errorData.message);
         }
-        const updatedUsers = users.filter(user => user.id !== userId);
-        setUsers(updatedUsers);
+        setUsers(users.filter(user => user._id !== userId)); // Use _id for MongoDB
       } catch (err) {
         setError(err.message);
       }
@@ -174,26 +262,101 @@ import React, { useState, useEffect } from 'react';
 
         {currentUserRole === 'admin' && (
           <>
-            <h3>{translate('adminPanel.addModule')}</h3>
-            <div>
-              <label htmlFor="module-name">{translate('adminPanel.moduleName')}</label>
-              <input type="text" id="module-name" name="nom" value={newModule.nom} onChange={handleModuleInputChange} />
-            </div>
-            <div>
-              <label htmlFor="module-content">{translate('adminPanel.moduleContent')}</label>
-              <textarea id="module-content" name="contenu" value={newModule.contenu} onChange={handleModuleInputChange} />
-            </div>
-            <button onClick={editModuleId ? handleUpdateModule : handleAddModule}>
-              {editModuleId ? translate('adminPanel.updateModule') : translate('adminPanel.addModule')}
-            </button>
+            <fieldset className="admin-form-section">
+              <legend>{editModuleId ? translate('adminPanel.editModule') : translate('adminPanel.addModule')}</legend>
+              <div>
+                <label htmlFor="module-nom">{translate('adminPanel.moduleName')}</label>
+                <input type="text" id="module-nom" name="nom" value={newModule.nom} onChange={handleModuleInputChange} required aria-required="true" />
+              </div>
+              <div>
+                <label htmlFor="module-contenu">{translate('adminPanel.moduleContent')}</label>
+                <textarea id="module-contenu" name="contenu" value={newModule.contenu} onChange={handleModuleInputChange} required aria-required="true" />
+              </div>
+              <div>
+                <label htmlFor="module-document">{translate('adminPanel.moduleDocumentUrl')}</label>
+                <input type="text" id="module-document" name="document" value={newModule.document} onChange={handleModuleInputChange} />
+              </div>
+              {/* Audio Fields */}
+              <div>
+                <label htmlFor="module-audio_fr">{translate('adminPanel.audioFrUrl')}</label>
+                <input type="text" id="module-audio_fr" name="audio_fr" value={newModule.audio_fr} onChange={handleModuleInputChange} />
+              </div>
+              <div>
+                <label htmlFor="module-audio_en">{translate('adminPanel.audioEnUrl')}</label>
+                <input type="text" id="module-audio_en" name="audio_en" value={newModule.audio_en} onChange={handleModuleInputChange} />
+              </div>
+              <div>
+                <label htmlFor="module-audio_es">{translate('adminPanel.audioEsUrl')}</label>
+                <input type="text" id="module-audio_es" name="audio_es" value={newModule.audio_es} onChange={handleModuleInputChange} />
+              </div>
+              {/* Subtitles Fields */}
+              <div>
+                <label htmlFor="module-subtitles_fr">{translate('adminPanel.subtitlesFrUrl')}</label>
+                <input type="text" id="module-subtitles_fr" name="subtitles_fr" value={newModule.subtitles_fr} onChange={handleModuleInputChange} />
+              </div>
+              <div>
+                <label htmlFor="module-subtitles_en">{translate('adminPanel.subtitlesEnUrl')}</label>
+                <input type="text" id="module-subtitles_en" name="subtitles_en" value={newModule.subtitles_en} onChange={handleModuleInputChange} />
+              </div>
+              <div>
+                <label htmlFor="module-subtitles_es">{translate('adminPanel.subtitlesEsUrl')}</label>
+                <input type="text" id="module-subtitles_es" name="subtitles_es" value={newModule.subtitles_es} onChange={handleModuleInputChange} />
+              </div>
 
-            <h3>{translate('adminPanel.manageModules')}</h3>
-            <ul>
-              {modules.map(module => (
-                <li key={module.id}>
-                  {module.nom}
-                  <button onClick={() => handleEditModule(module.id)}>{translate('adminPanel.edit')}</button>
-                  <button onClick={() => handleDeleteModule(module.id)}>{translate('adminPanel.delete')}</button>
+              <button onClick={handleSaveModule}>
+                {editModuleId ? translate('adminPanel.updateModule') : translate('adminPanel.createModule')}
+              </button>
+              {editModuleId && <button onClick={resetModuleForm} type="button">{translate('adminPanel.cancelEdit')}</button>}
+            </fieldset>
+
+            <section aria-labelledby="manage-modules-heading">
+              <h3 id="manage-modules-heading">{translate('adminPanel.manageModules')}</h3>
+              {loading && <p aria-busy="true">{translate('adminPanel.loadingModules') || 'Loading modules...'}</p>}
+              <ul>
+                {modules.map(module => (
+                  <li key={module._id}> {/* Use _id from MongoDB */}
+                    {module.nom}
+                    <button onClick={() => handleEditModule(module)} aria-label={`${translate('adminPanel.edit') || 'Edit'} ${module.nom}`}>{translate('adminPanel.edit')}</button>
+                    <button onClick={() => handleDeleteModule(module._id)} aria-label={`${translate('adminPanel.delete') || 'Delete'} ${module.nom}`}>{translate('adminPanel.delete')}</button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </>
+        )}
+
+        <fieldset className="admin-form-section">
+          <legend>{translate('adminPanel.manageUsers')}</legend>
+          <div>
+            <label htmlFor="user-name">{translate('adminPanel.userName')}</label>
+            <input type="text" id="user-name" name="nom" value={newUser.nom} onChange={handleUserInputChange} />
+          </div>
+          <div>
+            <label htmlFor="user-email">{translate('adminPanel.userEmail')}</label>
+            <input type="email" id="user-email" name="email" value={newUser.email} onChange={handleUserInputChange} />
+          </div>
+          <div>
+            <label htmlFor="user-role">{translate('adminPanel.userRole')}</label>
+            <select id="user-role" name="role" value={newUser.role} onChange={handleUserInputChange}>
+              <option value="user">{translate('adminPanel.user') || 'User'}</option>
+              <option value="admin">{translate('adminPanel.admin') || 'Admin'}</option>
+            </select>
+          </div>
+          <div>
+            <label htmlFor="user-password">{translate('adminPanel.userPassword') || 'Password (for new user)'}:</label>
+            <input type="password" id="user-password" name="password" value={newUser.password || ''} onChange={handleUserInputChange} />
+          </div>
+          <button onClick={editUserId ? handleUpdateUser : handleAddUser}>
+            {editUserId ? translate('adminPanel.updateUser') : translate('adminPanel.addUser')}
+          </button>
+          {loading && <p aria-busy="true">{translate('adminPanel.loadingUsers') || 'Loading users...'}</p>}
+          <ul>
+            {users.map(user => (
+              // Assuming user._id from MongoDB now
+              <li key={user._id || user.id}> 
+                {user.nom} - {user.email} - {user.role}
+                <button onClick={() => handleEditUser(user._id || user.id)} aria-label={`${translate('adminPanel.edit') || 'Edit'} ${user.nom}`}>{translate('adminPanel.edit')}</button>
+                <button onClick={() => handleDeleteUser(user._id || user.id)} aria-label={`${translate('adminPanel.delete') || 'Delete'} ${user.nom}`}>{translate('adminPanel.delete')}</button>
                 </li>
               ))}
             </ul>
@@ -212,19 +375,24 @@ import React, { useState, useEffect } from 'react';
         <div>
           <label htmlFor="user-role">{translate('adminPanel.userRole')}</label>
           <select id="user-role" name="role" value={newUser.role} onChange={handleUserInputChange}>
-            <option value="user">{translate('adminPanel.user')}</option>
-            <option value="admin">{translate('adminPanel.admin')}</option>
+            <option value="user">{translate('adminPanel.user') || 'User'}</option>
+            <option value="admin">{translate('adminPanel.admin') || 'Admin'}</option>
           </select>
+        </div>
+        <div>
+          <label htmlFor="user-password">{translate('adminPanel.userPassword') || 'Password (for new user)'}:</label>
+          <input type="password" id="user-password" name="password" value={newUser.password || ''} onChange={handleUserInputChange} />
         </div>
         <button onClick={editUserId ? handleUpdateUser : handleAddUser}>
           {editUserId ? translate('adminPanel.updateUser') : translate('adminPanel.addUser')}
         </button>
         <ul>
           {users.map(user => (
-            <li key={user.id}>
+            // Assuming user._id from MongoDB now
+            <li key={user._id || user.id}> 
               {user.nom} - {user.email} - {user.role}
-              <button onClick={() => handleEditUser(user.id)}>{translate('adminPanel.edit')}</button>
-              <button onClick={() => handleDeleteUser(user.id)}>{translate('adminPanel.delete')}</button>
+              <button onClick={() => handleEditUser(user._id || user.id)}>{translate('adminPanel.edit')}</button>
+              <button onClick={() => handleDeleteUser(user._id || user.id)}>{translate('adminPanel.delete')}</button>
             </li>
           ))}
         </ul>
